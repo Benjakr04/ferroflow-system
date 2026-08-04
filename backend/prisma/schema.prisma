@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+//======================ENUMS==========================================
+
+enum Role {
+  VENDEDOR
+  CAJERO
+  ADMIN
+  CLIENTE
+}
+
+enum ProductUnit {
+  UNIDAD
+  DECENA
+  DOCENA
+  CAJA
+  BOLSA
+  KG
+  LITRO
+  METRO
+}
+
+enum InvoiceStatus {
+  DRAFT        // Borrador (aún no pagado)
+  PAGADO       // Pago confirmado
+  CANCELADO    // Factura anulada
+  DEVOLUCION   // Devolución parcial/total
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  TARJETA_DEBITO
+  TARJETA_CREDITO
+  CHEQUE
+  TRANSFERENCIA
+  OTRO
+}
+
+enum UserStatus {
+  ACTIVO
+  INACTIVO
+  SUSPENDIDO
+}
+
+enum CustomerType {
+  PERSONA_FISICA     // CI
+  PERSONA_JURIDICA   // RUC + Razón Social
+}
+
+//====================MODELOS============================
+
+model User {
+  id_user       Int        @id @default(autoincrement())
+  email         String     @unique
+  name          String
+  role          Role       @default(VENDEDOR)
+  password_hash String     @db.VarChar(255)
+  phone         String?    @db.VarChar(20)
+  status        UserStatus @default(ACTIVO)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  invoices Invoice[]   // Facturas que este empleado procesó
+}
+
+// ---------- CATEGORÍAS (con subcategorías) ----------
+model Category {
+  id_category   Int        @id @default(autoincrement())
+  name          String     @unique
+  description   String?
+  id_parent     Int?                          // NULL = categoría principal
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  parent        Category?  @relation("SubCategories", fields: [id_parent], references: [id_category], onDelete: Cascade)
+  subcategories Category[] @relation("SubCategories")
+  products      Product[]
+}
+
+// ---------- PRODUCTOS ----------
+model Product {
+  id_product    Int       @id @default(autoincrement())
+  code          String?    @unique
+  name          String
+  description   String?
+  baseUnit      ProductUnit            // Unidad mínima en la que se guarda el stock (ej: UNIDAD, KG, LITRO)
+  stock         Float     @default(0)  // Stock SIEMPRE en baseUnit
+  minStock      Float     @default(0)
+  id_category   Int
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category      Category  @relation(fields: [id_category], references: [id_category])
+  presentations ProductPresentation[]
+  invoiceItems  InvoiceItem[]
+}
+
+// ---------- PRESENTACIONES DE VENTA (multi-unidad) ----------
+model ProductPresentation {
+  id_presentation Int         @id @default(autoincrement())
+  id_product      Int
+  unit            ProductUnit             // Ej: CAJA, DOCENA, UNIDAD
+  conversionRate  Float                   // Cuántas baseUnit equivale (Caja = 100 unidades)
+  price           Float
+  isDefault       Boolean     @default(false) // La forma "principal" en que se vende
+  active          Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  product      Product       @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+  invoiceItems InvoiceItem[]
+
+  @@unique([id_product, unit])   // No puede haber 2 presentaciones iguales para el mismo producto
+}
+
+// ---------- CLIENTES (datos para la factura) ----------
+model Customer {
+  id_customer    Int          @id @default(autoincrement())
+  type           CustomerType @default(PERSONA_FISICA)
+  name           String                      // Nombre completo o Razón Social
+  documentType   String?      @db.VarChar(10) // "CI" o "RUC"
+  documentNumber String?      @unique
+  phone          String?      @db.VarChar(20)
+  email          String?
+  address        String?
+  id_user        Int?         @unique         // Opcional: vínculo a User cuando tenga cuenta (Fase 2)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  invoices Invoice[]
+}
+
+// ---------- FACTURAS ----------
+model Invoice {
+  id_invoice    Int           @id @default(autoincrement())
+  invoiceNumber String        @unique
+  status        InvoiceStatus @default(DRAFT)
+  paymentMethod PaymentMethod
+  subtotal      Float
+  tax           Float
+  total         Float
+  id_user       Int                          // Quién procesó la venta (cajero/admin)
+  id_customer   Int                          // A quién se le vendió
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user     User          @relation(fields: [id_user], references: [id_user])
+  customer Customer      @relation(fields: [id_customer], references: [id_customer])
+  items    InvoiceItem[]
+}
+
+// ---------- ITEMS DE FACTURA ----------
+model InvoiceItem {
+  id_invoiceitem  Int      @id @default(autoincrement())
+  id_invoice      Int
+  id_product      Int
+  id_presentation Int                      // Qué presentación se vendió (caja, docena, unidad...)
+  quantity        Float                    // Cantidad en términos de esa presentación
+  unitPrice       Float                    // Precio "congelado" al momento de la venta
+  subtotal        Float
+  createdAt       DateTime @default(now())
+
+  invoice      Invoice              @relation(fields: [id_invoice], references: [id_invoice], onDelete: Cascade)
+  product      Product              @relation(fields: [id_product], references: [id_product])
+  presentation ProductPresentation  @relation(fields: [id_presentation], references: [id_presentation])
+}
