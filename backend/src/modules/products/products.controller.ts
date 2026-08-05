@@ -10,6 +10,7 @@ import {
   deactivateProduct,
   findCategoryById,
 } from "./products.service";
+import type { AuthenticatedRequest } from "../auth/auth.middleware";
 
 export async function create(req: Request, res: Response) {
   try {
@@ -39,10 +40,10 @@ export async function create(req: Request, res: Response) {
   }
 }
 
-export async function list(req: Request, res: Response) {
+export async function list(req: AuthenticatedRequest, res: Response) {
   try {
-    // ?includeInactive=true permite a un ADMIN ver también los productos desactivados
-    const includeInactive = req.query.includeInactive === "true";
+    // Solo ADMIN puede ver productos inactivos
+    const includeInactive = req.user?.role === "ADMIN" && req.query.includeInactive === "true";
     const products = await getAllProducts(includeInactive);
     return res.status(200).json(products);
   } catch (error) {
@@ -54,7 +55,7 @@ export async function list(req: Request, res: Response) {
 export async function getOne(req: Request, res: Response) {
   try {
     const id_product = Number(req.params.id);
-    if (Number.isNaN(id_product)) {
+    if (!Number.isSafeInteger(id_product) || id_product <= 0) {
       return res.status(400).json({ error: "ID de producto inválido" });
     }
 
@@ -73,12 +74,12 @@ export async function getOne(req: Request, res: Response) {
 export async function update(req: Request, res: Response) {
   try {
     const id_product = Number(req.params.id);
-    if (Number.isNaN(id_product)) {
+    if (!Number.isSafeInteger(id_product) || id_product <= 0) {
       return res.status(400).json({ error: "ID de producto inválido" });
     }
 
     const data = updateProductSchema.parse(req.body);
-
+    
     if (data.id_category !== undefined) {
       const category = await findCategoryById(data.id_category);
       if (!category) {
@@ -104,11 +105,10 @@ export async function update(req: Request, res: Response) {
     return res.status(500).json({ error: "Error al actualizar el producto" });
   }
 }
-
 export async function remove(req: Request, res: Response) {
   try {
     const id_product = Number(req.params.id);
-    if (Number.isNaN(id_product)) {
+    if (!Number.isSafeInteger(id_product) || id_product <= 0) {
       return res.status(400).json({ error: "ID de producto inválido" });
     }
 
