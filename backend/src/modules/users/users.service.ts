@@ -92,17 +92,20 @@ export async function updateUser(id_user: number, data: UpdateUserInput) {
     },
   });
 
+  // NOTA: Si el status cambió a INACTIVO/SUSPENDIDO, el middleware authenticate()
+  // invalidará cualquier token existente verificando user.status en cada request.
   return user;
 }
 
 export async function deleteUser(id_user: number) {
-  // Soft delete: marcar como inactivo en lugar de borrar
+  // Soft delete: marcar como inactivo en lugar de borrar.
+  // Esto invalida inmediatamente todas las sesiones activas del usuario,
+  // ya que el middleware authenticate() rechazará requests con status !== "ACTIVO".
   await prisma.user.update({
     where: { id_user },
     data: { status: "INACTIVO" },
   });
 }
-
 export async function getUserByEmail(email: string) {
   return prisma.user.findUnique({
     where: { email },
