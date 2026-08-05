@@ -3,6 +3,7 @@ import cors from "cors";
 
 import authRoutes from "./modules/auth/auth.routes";
 import productsRoutes from "./modules/products/products.routes";
+import usersRoutes from "./modules/users/users.routes";
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(express.json());
 const apiRouter = express.Router();
 apiRouter.use("/auth", authRoutes);
 apiRouter.use("/products", productsRoutes); 
+apiRouter.use("/users", usersRoutes);
 app.use("/api", apiRouter);   
 
 // Rutas básicas
