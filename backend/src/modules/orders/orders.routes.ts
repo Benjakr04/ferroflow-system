@@ -5,17 +5,17 @@ import { create, list, getOne, update, remove } from "./orders.controller";
 
 const router = Router();
 
-// VENDEDOR y CAJERO pueden crear órdenes
+// VENDEDOR, CAJERO, ADMIN pueden crear órdenes
 router.post("/", authenticate, authorize("VENDEDOR", "CAJERO", "ADMIN"), create);
 
 // Todos pueden ver órdenes (con authenticate)
 router.get("/", authenticate, list);
 router.get("/:id", authenticate, getOne);
 
-// Solo CAJERO y ADMIN pueden actualizar estado
-router.put("/:id", authenticate, authorize("CAJERO", "ADMIN"), update);
+// VENDEDOR, CAJERO, ADMIN pueden editar (cambiar status de PENDIENTE a ENVIADA)
+router.put("/:id", authenticate, authorize("VENDEDOR", "CAJERO", "ADMIN"), update);
 
-// Solo ADMIN puede cancelar
-router.delete("/:id", authenticate, authorize("ADMIN"), remove);
+// VENDEDOR, CAJERO, ADMIN pueden cancelar (solo si está PENDIENTE)
+router.delete("/:id", authenticate, authorize("VENDEDOR", "CAJERO", "ADMIN"), remove);
 
 export default router;

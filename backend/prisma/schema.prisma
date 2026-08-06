@@ -30,7 +30,7 @@ enum ProductUnit {
 
 enum OrderStatus {
   PENDIENTE
-  FACTURADA
+  ENVIADA
   CANCELADA
 }
 

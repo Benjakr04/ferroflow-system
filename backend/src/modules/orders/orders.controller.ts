@@ -44,7 +44,16 @@ export async function list(req: AuthenticatedRequest, res: Response) {
       ? Number(req.query.id_customer)
       : undefined;
 
-    // Armamos el objeto solo con propiedades que existen
+    // Validar status si viene - CAMBIAR DE FACTURADA A ENVIADA
+    if (status && !["PENDIENTE", "ENVIADA", "CANCELADA"].includes(status)) {
+      return res.status(400).json({ error: "Status inválido" });
+    }
+
+    // Validar id_customer si viene
+    if (id_customer && (!Number.isSafeInteger(id_customer) || id_customer <= 0)) {
+      return res.status(400).json({ error: "ID de cliente inválido" });
+    }
+
     const filters: { status?: string; id_customer?: number } = {};
     if (status) filters.status = status;
     if (id_customer) filters.id_customer = id_customer;
@@ -56,7 +65,6 @@ export async function list(req: AuthenticatedRequest, res: Response) {
     return res.status(500).json({ error: "Error al obtener las órdenes" });
   }
 }
-
 export async function getOne(req: AuthenticatedRequest, res: Response) {
   try {
     const id_order = Number(req.params.id);
