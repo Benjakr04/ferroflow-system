@@ -28,6 +28,12 @@ enum ProductUnit {
   METRO
 }
 
+enum OrderStatus {
+  PENDIENTE
+  FACTURADA
+  CANCELADA
+}
+
 enum InvoiceStatus {
   DRAFT
   PAGADO
@@ -69,6 +75,7 @@ model User {
   updatedAt     DateTime   @updatedAt
 
   invoices Invoice[]
+  orders   Order[]
   customer Customer?
 }
 
@@ -115,6 +122,7 @@ model ProductPresentation {
 
   product      Product       @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
   invoiceItems InvoiceItem[]
+  orderItems   OrderItem[]
 
   @@unique([id_product, unit])
 }
@@ -134,24 +142,60 @@ model Customer {
 
   user     User?     @relation(fields: [id_user], references: [id_user])
   invoices Invoice[]
+  orders   Order[]
 }
 
+// Modelo Order
+model Order {
+  id_order     Int         @id @default(autoincrement())
+  id_customer  Int
+  id_user      Int         // vendedor o cajero que creó la orden
+  status       OrderStatus @default(PENDIENTE)
+  observations String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  customer Customer    @relation(fields: [id_customer], references: [id_customer], onDelete: Cascade)
+  user     User       @relation(fields: [id_user], references: [id_user])
+  items    OrderItem[]
+  invoice  Invoice?   // una orden puede tener 0 o 1 factura
+}
+
+// OrderItem
+model OrderItem {
+  id_orderitem    Int     @id @default(autoincrement())
+  id_order        Int
+  id_presentation Int
+  quantity        Decimal @db.Decimal(12, 3)
+  unitPrice       Decimal @db.Decimal(12, 2)
+  subtotal        Decimal @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+
+  order         Order                @relation(fields: [id_order], references: [id_order], onDelete: Cascade)
+  presentation  ProductPresentation  @relation(fields: [id_presentation], references: [id_presentation])
+}
+
+// Actualizado: Invoice ahora referencia Order
 model Invoice {
   id_invoice    Int           @id @default(autoincrement())
   invoiceNumber String        @unique
+  id_order      Int?          // puede venir de una orden o ser directa
   status        InvoiceStatus @default(DRAFT)
   paymentMethod PaymentMethod
   subtotal      Decimal       @db.Decimal(12, 2)
   tax           Decimal       @db.Decimal(12, 2)
   total         Decimal       @db.Decimal(12, 2)
-  id_user       Int
+  id_user       Int           // cajero/admin que facturó
   id_customer   Int
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  user     User          @relation(fields: [id_user], references: [id_user])
-  customer Customer      @relation(fields: [id_customer], references: [id_customer])
+  order    Order?         @relation(fields: [id_order], references: [id_order], onDelete: SetNull)
+  user     User           @relation(fields: [id_user], references: [id_user])
+  customer Customer       @relation(fields: [id_customer], references: [id_customer])
   items    InvoiceItem[]
+
+  @@unique([id_order]) // cada orden → máximo 1 factura
 }
 
 model InvoiceItem {
