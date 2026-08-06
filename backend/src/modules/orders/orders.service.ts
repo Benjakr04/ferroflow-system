@@ -210,7 +210,7 @@ export async function updateOrder(id_order: number, data: UpdateOrderInput) {
   if (currentOrder.status === "CANCELADA") {
     throw new OrderDomainError(
       "No se puede editar una orden cancelada",
-      400
+      409
     );
   }
 
