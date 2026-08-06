@@ -41,7 +41,15 @@ export async function create(req: AuthenticatedRequest, res: Response) {
       return res.status(error.statusCode).json({ error: error.message });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return res.status(409).json({ error: "Esta orden ya tiene una factura asociada" });
+      // P2002 puede ser por id_order o invoiceNumber unique constraint
+      // id_order: ya tiene factura asociada
+      // invoiceNumber: race condition en la generacion del numero
+      const target = error.meta?.target as string[] | undefined;
+      if (target?.includes("id_order")) {
+        return res.status(409).json({ error: "Esta orden ya tiene una factura asociada" });
+      } else {
+        return res.status(409).json({ error: "Numero de factura duplicado. Reintenta la operacion" });
+      }
     }
     console.error(error);
     return res.status(500).json({ error: "Error al crear la factura" });

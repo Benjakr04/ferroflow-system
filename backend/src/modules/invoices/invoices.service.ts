@@ -43,6 +43,13 @@ function serializeInvoice(invoice: any) {
 }
 
 /**
+ * Redondea un numero a 2 decimales (centavos)
+ */
+function roundToTwoDecimals(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
  * Genera el siguiente numero de factura secuencial de forma atomica
  * Formato: 001-001-0000001 (establecimiento-punto_expedicion-secuencial)
  *
@@ -75,11 +82,11 @@ async function generateInvoiceNumber(): Promise<string> {
  * 2. Verifica que la orden no tenga ya una factura asociada
  * 3. Re-valida el stock (puede haber cambiado desde que se creo la orden)
  * 4. Calcula subtotal, IVA (10%) y total a partir de los items de la orden
+ *    con redondeo correcto para que la suma de ivaAmounts = tax
  * 5. Genera el numero de factura secuencial
  * 6. Crea la factura + items, y descuenta el stock real de los productos
  *
- * Todo el paso 6 ocurre dentro de una transaccion con descuento condicional:
- * si el stock cambio concurrentemente, la transaccion falla y se retira.
+ * Transaccion atomica con descuento condicional del stock.
  */
 export async function createInvoiceFromOrder(id_user: number, data: CreateInvoiceInput) {
   const order = await prisma.order.findUnique({
@@ -130,29 +137,33 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
     }
   }
 
-  // Calcular subtotal, IVA y total a partir de los items de la orden
-  // Con redondeo correcto a 2 decimales
+  // Calcular subtotal, IVA y total con redondeo correcto
+  // Importante: cada ivaAmount se redondea, y la suma de todos ellos ES el tax
   let subtotal = 0;
-  const itemsData = order.items.map((item) => {
-    const itemSubtotal = Number(item.quantity) * Number(item.unitPrice);
-    const roundedSubtotal = Math.round(itemSubtotal * 100) / 100;
-    subtotal += roundedSubtotal;
+  let totalIva = 0;
+
+  const itemsDataWithIva = order.items.map((item) => {
+    const itemSubtotal = roundToTwoDecimals(Number(item.quantity) * Number(item.unitPrice));
+    const itemIva = roundToTwoDecimals(itemSubtotal * IVA_RATE);
+
+    subtotal += itemSubtotal;
+    totalIva += itemIva;
 
     return {
       id_presentation: item.id_presentation,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
-      subtotal: roundedSubtotal,
-      ivaAmount: 0, // Calcularemos despues del redondeo total
+      subtotal: itemSubtotal,
+      ivaAmount: itemIva,
     };
   });
 
   // Redondear subtotal total
-  subtotal = Math.round(subtotal * 100) / 100;
+  subtotal = roundToTwoDecimals(subtotal);
 
-  // Calcular IVA total con redondeo correcto
-  const tax = Math.round(subtotal * IVA_RATE * 100) / 100;
-  const total = subtotal + tax;
+  // El tax es EXACTAMENTE la suma de los ivaAmounts (garantiza auditoría)
+  const tax = roundToTwoDecimals(totalIva);
+  const total = roundToTwoDecimals(subtotal + tax);
 
   const invoiceNumber = await generateInvoiceNumber();
 
@@ -160,8 +171,7 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
   const clientRUC = order.customer.documentNumber ?? null;
   const clientType = order.customer.type;
 
-  // Transaccion: crear factura + items + descontar stock CONDICIONAL
-  // Si el stock cambio concurrentemente, la transaccion falla completamente
+  // Transaccion atomica: crear factura + items + descontar stock CONDICIONAL
   const invoice = await prisma.$transaction(async (tx) => {
     const createdInvoice = await tx.invoice.create({
       data: {
@@ -177,10 +187,7 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
         clientRUC,
         clientType,
         items: {
-          create: itemsData.map((item) => ({
-            ...item,
-            ivaAmount: Math.round(item.subtotal * IVA_RATE * 100) / 100,
-          })),
+          create: itemsDataWithIva,
         },
       },
       include: {
@@ -342,7 +349,6 @@ export async function updateInvoiceStatus(id_invoice: number, data: UpdateInvoic
   // Transaccion atomica: re-validar estado + cambiar + restaurar stock si aplica
   const updatedInvoice = await prisma.$transaction(async (tx) => {
     // Re-leer la factura DENTRO de la transaccion para validar estado actual
-    // Otro hilo puede haber cambiado el estado entre el fetch inicial y ahora
     const currentInvoiceInTx = await tx.invoice.findUnique({
       where: { id_invoice },
     });
