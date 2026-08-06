@@ -11,25 +11,37 @@ BEGIN;
 -- Crear secuencia para numeracion atomica de facturas
 CREATE SEQUENCE IF NOT EXISTS invoice_number_seq START 1 INCREMENT 1;
 
--- AlterTable Invoice con backfill desde createdAt
+-- AlterTable Invoice: agregar columnas nuevas
 ALTER TABLE "Invoice" 
   ADD COLUMN "clientRUC" VARCHAR(15),
   ADD COLUMN "clientType" TEXT,
-  ADD COLUMN "emissionDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ADD COLUMN "saleCondition" TEXT NOT NULL DEFAULT 'CONTADO';
+  ADD COLUMN "emissionDate" TIMESTAMP(3),
+  ADD COLUMN "saleCondition" TEXT DEFAULT 'CONTADO';
 
--- AlterTable InvoiceItem con default temporal
+-- Backfill emissionDate desde createdAt para filas existentes
+UPDATE "Invoice" 
+SET "emissionDate" = "createdAt" 
+WHERE "emissionDate" IS NULL;
+
+-- Ahora hacer emissionDate NOT NULL
+ALTER TABLE "Invoice" 
+  ALTER COLUMN "emissionDate" SET NOT NULL,
+  ALTER COLUMN "saleCondition" DROP DEFAULT;
+
+-- AlterTable InvoiceItem: agregar ivaAmount con default temporal
 ALTER TABLE "InvoiceItem" 
-  ADD COLUMN "ivaAmount" DECIMAL(12,2) NOT NULL DEFAULT 0;
+  ADD COLUMN "ivaAmount" DECIMAL(12,2) DEFAULT 0;
 
--- Remover los defaults despues de la migracion (ya no son necesarios)
-ALTER TABLE "Invoice" ALTER COLUMN "saleCondition" DROP DEFAULT;
-ALTER TABLE "InvoiceItem" ALTER COLUMN "ivaAmount" DROP DEFAULT;
-
--- Crear indices para queries rapidas
-CREATE INDEX "Invoice_status_idx" ON "Invoice"("status");
-CREATE INDEX "Invoice_id_customer_idx" ON "Invoice"("id_customer");
-CREATE INDEX "Invoice_id_user_idx" ON "Invoice"("id_user");
-CREATE INDEX "Invoice_emissionDate_idx" ON "Invoice"("emissionDate");
+-- Remover el default temporal
+ALTER TABLE "InvoiceItem" 
+  ALTER COLUMN "ivaAmount" DROP DEFAULT,
+  ALTER COLUMN "ivaAmount" SET NOT NULL;
 
 COMMIT;
+
+-- Crear indices FUERA de la transaccion (despues de que se commitee el schema)
+-- Esto evita bloqueos durante la migracion
+CREATE INDEX CONCURRENTLY "Invoice_status_idx" ON "Invoice"("status");
+CREATE INDEX CONCURRENTLY "Invoice_id_customer_idx" ON "Invoice"("id_customer");
+CREATE INDEX CONCURRENTLY "Invoice_id_user_idx" ON "Invoice"("id_user");
+CREATE INDEX CONCURRENTLY "Invoice_emissionDate_idx" ON "Invoice"("emissionDate");
