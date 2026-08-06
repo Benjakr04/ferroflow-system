@@ -6,6 +6,10 @@
 */
 -- AlterEnum
 BEGIN;
+
+-- Mapear cualquier orden FACTURADA a ENVIADA antes de cambiar el enum
+UPDATE "Order" SET "status" = 'ENVIADA' WHERE "status" = 'FACTURADA';
+
 CREATE TYPE "OrderStatus_new" AS ENUM ('PENDIENTE', 'ENVIADA', 'CANCELADA');
 ALTER TABLE "Order" ALTER COLUMN "status" DROP DEFAULT;
 ALTER TABLE "Order" ALTER COLUMN "status" TYPE "OrderStatus_new" USING ("status"::text::"OrderStatus_new");

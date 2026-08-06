@@ -44,9 +44,12 @@ export async function list(req: AuthenticatedRequest, res: Response) {
       ? Number(req.query.id_customer)
       : undefined;
 
-    // Validar status si viene - CAMBIAR DE FACTURADA A ENVIADA
-    if (status && !["PENDIENTE", "ENVIADA", "CANCELADA"].includes(status)) {
-      return res.status(400).json({ error: "Status inválido" });
+    // Validar status contra el enum de verdad
+    const validStatuses = ["PENDIENTE", "ENVIADA", "CANCELADA"];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        error: `Status inválido. Valores permitidos: ${validStatuses.join(", ")}` 
+      });
     }
 
     // Validar id_customer si viene
@@ -65,6 +68,7 @@ export async function list(req: AuthenticatedRequest, res: Response) {
     return res.status(500).json({ error: "Error al obtener las órdenes" });
   }
 }
+
 export async function getOne(req: AuthenticatedRequest, res: Response) {
   try {
     const id_order = Number(req.params.id);
