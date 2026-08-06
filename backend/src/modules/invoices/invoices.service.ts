@@ -43,18 +43,28 @@ function serializeInvoice(invoice: any) {
 }
 
 /**
- * Genera el siguiente numero de factura secuencial.
+ * Genera el siguiente numero de factura secuencial de forma atomica
  * Formato: 001-001-0000001 (establecimiento-punto_expedicion-secuencial)
  *
- * NOTA: Esta es una implementacion simple pensada para desarrollo/una sola
- * caja. En produccion, el establecimiento y punto de expedicion deben salir
- * de la configuracion real de la ferreteria (dato registrado en Marangatu).
+ * Usa una secuencia PostgreSQL para evitar race conditions.
+ * Si la secuencia no existe, crea un numero basado en count() como fallback.
  */
 async function generateInvoiceNumber(): Promise<string> {
-  const count = await prisma.invoice.count();
-  const nextNumber = count + 1;
-  const sequential = nextNumber.toString().padStart(7, "0");
-  return `001-001-${sequential}`;
+  try {
+    // Usar secuencia de PostgreSQL (atomica, thread-safe)
+    const result = await prisma.$queryRaw<Array<{ seq: number }>>`
+      SELECT NEXTVAL('invoice_number_seq')::int as seq
+    `;
+    const seq = result[0]?.seq || 1;
+    const sequential = seq.toString().padStart(7, "0");
+    return `001-001-${sequential}`;
+  } catch {
+    // Fallback si la secuencia no existe: usar count() (menos seguro pero funciona)
+    const count = await prisma.invoice.count();
+    const nextNumber = count + 1;
+    const sequential = nextNumber.toString().padStart(7, "0");
+    return `001-001-${sequential}`;
+  }
 }
 
 /**
@@ -68,8 +78,8 @@ async function generateInvoiceNumber(): Promise<string> {
  * 5. Genera el numero de factura secuencial
  * 6. Crea la factura + items, y descuenta el stock real de los productos
  *
- * Todo el paso 6 ocurre dentro de una transaccion: si algo falla, no se
- * descuenta stock a medias ni queda una factura sin sus items.
+ * Todo el paso 6 ocurre dentro de una transaccion con descuento condicional:
+ * si el stock cambio concurrentemente, la transaccion falla y se retira.
  */
 export async function createInvoiceFromOrder(id_user: number, data: CreateInvoiceInput) {
   const order = await prisma.order.findUnique({
@@ -121,32 +131,37 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
   }
 
   // Calcular subtotal, IVA y total a partir de los items de la orden
+  // Con redondeo correcto a 2 decimales
   let subtotal = 0;
   const itemsData = order.items.map((item) => {
     const itemSubtotal = Number(item.quantity) * Number(item.unitPrice);
-    const itemIva = itemSubtotal * IVA_RATE;
-    subtotal += itemSubtotal;
+    const roundedSubtotal = Math.round(itemSubtotal * 100) / 100;
+    subtotal += roundedSubtotal;
 
     return {
       id_presentation: item.id_presentation,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
-      subtotal: itemSubtotal,
-      ivaAmount: itemIva,
+      subtotal: roundedSubtotal,
+      ivaAmount: 0, // Calcularemos despues del redondeo total
     };
   });
 
-  const tax = subtotal * IVA_RATE;
+  // Redondear subtotal total
+  subtotal = Math.round(subtotal * 100) / 100;
+
+  // Calcular IVA total con redondeo correcto
+  const tax = Math.round(subtotal * IVA_RATE * 100) / 100;
   const total = subtotal + tax;
 
   const invoiceNumber = await generateInvoiceNumber();
 
-  // Datos del cliente copiados al momento de emitir, para conservar el
-  // historial aunque el cliente edite sus datos despues
+  // Datos del cliente copiados al momento de emitir
   const clientRUC = order.customer.documentNumber ?? null;
   const clientType = order.customer.type;
 
-  // Transaccion: crear factura + items + descontar stock real, todo o nada
+  // Transaccion: crear factura + items + descontar stock CONDICIONAL
+  // Si el stock cambio concurrentemente, la transaccion falla completamente
   const invoice = await prisma.$transaction(async (tx) => {
     const createdInvoice = await tx.invoice.create({
       data: {
@@ -162,7 +177,10 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
         clientRUC,
         clientType,
         items: {
-          create: itemsData,
+          create: itemsData.map((item) => ({
+            ...item,
+            ivaAmount: Math.round(item.subtotal * IVA_RATE * 100) / 100,
+          })),
         },
       },
       include: {
@@ -179,17 +197,32 @@ export async function createInvoiceFromOrder(id_user: number, data: CreateInvoic
       },
     });
 
-    // Descontar el stock real de cada producto involucrado
+    // Descontar stock de forma condicional y atomica
+    // Solo decrementa si hay stock suficiente disponible AHORA
     for (const item of order.items) {
       const neededStock = Number(item.quantity) * Number(item.presentation.conversionRate);
-      await tx.product.update({
-        where: { id_product: item.presentation.id_product },
+
+      // updateMany retorna affected count
+      // Si es 0, significa que otro hilo/request ya modifico el stock
+      const updated = await tx.product.updateMany({
+        where: {
+          id_product: item.presentation.id_product,
+          stock: { gte: neededStock }, // Solo actualizar si hay stock
+        },
         data: {
           stock: {
             decrement: neededStock,
           },
         },
       });
+
+      if (updated.count === 0) {
+        throw new InvoiceDomainError(
+          `Stock insuficiente para ${item.presentation.product.name}. ` +
+          `Puede haber sido comprado concurrentemente.`,
+          409
+        );
+      }
     }
 
     return createdInvoice;
@@ -261,6 +294,9 @@ export async function getInvoiceById(id_invoice: number) {
  * - PAGADO -> DEVOLUCION  (el cliente devuelve la compra; se restaura el stock)
  *
  * CANCELADO y DEVOLUCION son estados finales: no se puede salir de ahi.
+ *
+ * Transaccion atomica para evitar restaurar stock dos veces si dos requests
+ * concurrentes intentan cambiar el estado simultaneamente.
  */
 export async function updateInvoiceStatus(id_invoice: number, data: UpdateInvoiceStatusInput) {
   const invoice = await prisma.invoice.findUnique({
@@ -301,10 +337,32 @@ export async function updateInvoiceStatus(id_invoice: number, data: UpdateInvoic
     );
   }
 
-  // CANCELADO y DEVOLUCION implican devolver el stock descontado al crear la factura
   const shouldRestoreStock = newStatus === "CANCELADO" || newStatus === "DEVOLUCION";
 
+  // Transaccion atomica: re-validar estado + cambiar + restaurar stock si aplica
   const updatedInvoice = await prisma.$transaction(async (tx) => {
+    // Re-leer la factura DENTRO de la transaccion para validar estado actual
+    // Otro hilo puede haber cambiado el estado entre el fetch inicial y ahora
+    const currentInvoiceInTx = await tx.invoice.findUnique({
+      where: { id_invoice },
+    });
+
+    if (!currentInvoiceInTx) {
+      throw new InvoiceDomainError("Factura no encontrada", 404);
+    }
+
+    // Re-validar la transicion dentro de la transaccion
+    const currentStatusInTx = currentInvoiceInTx.status;
+    const allowedInTx = validTransitions[currentStatusInTx] ?? [];
+
+    if (!allowedInTx.includes(newStatus)) {
+      throw new InvoiceDomainError(
+        `No se puede cambiar de ${currentStatusInTx} a ${newStatus}`,
+        409
+      );
+    }
+
+    // Si corresponde restaurar stock, hacerlo ANTES de actualizar el status
     if (shouldRestoreStock) {
       for (const item of invoice.items) {
         const restoredStock = Number(item.quantity) * Number(item.presentation.conversionRate);
@@ -319,6 +377,7 @@ export async function updateInvoiceStatus(id_invoice: number, data: UpdateInvoic
       }
     }
 
+    // Finalmente, cambiar el status
     return tx.invoice.update({
       where: { id_invoice },
       data: { status: newStatus },

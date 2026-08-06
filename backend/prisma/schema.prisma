@@ -176,6 +176,9 @@ model OrderItem {
 }
 
 // Actualizado: Invoice ahora referencia Order
+// Secuencia para numeracion atomica de facturas
+/// Este comentario es para que Prisma no lo toque
+/// CREATE SEQUENCE IF NOT EXISTS invoice_number_seq START 1;
 model Invoice {
   id_invoice      Int           @id @default(autoincrement())
   

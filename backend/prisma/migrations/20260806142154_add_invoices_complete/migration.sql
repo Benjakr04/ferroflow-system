@@ -6,22 +6,20 @@
 
 */
 -- AlterTable
-ALTER TABLE "Invoice" ADD COLUMN     "clientRUC" VARCHAR(15),
-ADD COLUMN     "clientType" TEXT,
-ADD COLUMN     "emissionDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN     "saleCondition" TEXT NOT NULL;
+ALTER TABLE "Invoice" 
+  ADD COLUMN "clientRUC" VARCHAR(15),
+  ADD COLUMN "clientType" TEXT,
+  ADD COLUMN "emissionDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "saleCondition" TEXT NOT NULL DEFAULT 'CONTADO';
 
--- AlterTable
-ALTER TABLE "InvoiceItem" ADD COLUMN     "ivaAmount" DECIMAL(12,2) NOT NULL;
+ALTER TABLE "InvoiceItem" 
+  ADD COLUMN "ivaAmount" DECIMAL(12,2) NOT NULL DEFAULT 0;
 
--- CreateIndex
+-- Después de migrar, remover los defaults
+ALTER TABLE "Invoice" ALTER COLUMN "saleCondition" DROP DEFAULT;
+ALTER TABLE "InvoiceItem" ALTER COLUMN "ivaAmount" DROP DEFAULT;
+
 CREATE INDEX "Invoice_status_idx" ON "Invoice"("status");
-
--- CreateIndex
 CREATE INDEX "Invoice_id_customer_idx" ON "Invoice"("id_customer");
-
--- CreateIndex
 CREATE INDEX "Invoice_id_user_idx" ON "Invoice"("id_user");
-
--- CreateIndex
 CREATE INDEX "Invoice_emissionDate_idx" ON "Invoice"("emissionDate");
