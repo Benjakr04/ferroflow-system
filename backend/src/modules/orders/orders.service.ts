@@ -272,7 +272,7 @@ export async function cancelOrder(id_order: number) {
     throw new OrderDomainError(
       "No se puede cancelar una orden que ya fue enviada. " +
       "Si necesitas deshacer esta compra, crea una factura de devolución.",
-      400
+      409
     );
   }
 
