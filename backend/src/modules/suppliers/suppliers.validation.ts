@@ -18,6 +18,14 @@ import { z } from "zod";
 // que rechazar valores mas grandes antes de que lleguen a la base.
 const POSTGRES_INT_MAX = 2147483647;
 
+// costPrice se guarda en Decimal(12, 2): 12 digitos totales, 2 decimales,
+// por lo que la parte entera admite hasta 10 digitos.
+const COST_PRICE_MAX = 9999999999.99;
+
+// minOrderQuantity se guarda en Decimal(12, 3): 12 digitos totales, 3
+// decimales, por lo que la parte entera admite hasta 9 digitos.
+const MIN_ORDER_QUANTITY_MAX = 999999999.999;
+
 /**
  * Verifica que un numero no tenga mas decimales de los que la columna
  * Decimal de Postgres puede almacenar. Contempla notacion cientifica
@@ -41,18 +49,24 @@ function hasMaxDecimalPlaces(value: number, maxPlaces: number): boolean {
   return decimals <= maxPlaces;
 }
 
-// costPrice se guarda en Decimal(12, 2): maximo 2 decimales
+// costPrice se guarda en Decimal(12, 2): maximo 2 decimales y magnitud
+// limitada a lo que entra en esa columna (evita overflow en Postgres
+// para valores como 1e100 que pasarian la validacion de escala pero
+// no caben en la columna).
 const costPriceSchema = z
   .number()
   .nonnegative("El precio de compra no puede ser negativo")
+  .max(COST_PRICE_MAX, "El precio de compra excede el maximo permitido")
   .refine((val) => hasMaxDecimalPlaces(val, 2), {
     message: "El precio de compra admite como maximo 2 decimales",
   });
 
-// minOrderQuantity se guarda en Decimal(12, 3): maximo 3 decimales
+// minOrderQuantity se guarda en Decimal(12, 3): maximo 3 decimales y
+// magnitud limitada de la misma forma que costPrice.
 const minOrderQuantitySchema = z
   .number()
   .nonnegative("La cantidad minima no puede ser negativa")
+  .max(MIN_ORDER_QUANTITY_MAX, "La cantidad minima excede el maximo permitido")
   .refine((val) => hasMaxDecimalPlaces(val, 3), {
     message: "La cantidad minima admite como maximo 3 decimales",
   });
