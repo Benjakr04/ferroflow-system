@@ -110,6 +110,7 @@ model Product {
 
   category      Category              @relation(fields: [id_category], references: [id_category])
   presentations ProductPresentation[]
+  productSuppliers      ProductSupplier[]
 }
 
 model ProductPresentation {
@@ -267,4 +268,38 @@ model InvoiceItem {
   // Relaciones
   invoice         Invoice             @relation(fields: [id_invoice], references: [id_invoice], onDelete: Cascade)
   presentation    ProductPresentation @relation(fields: [id_presentation], references: [id_presentation])
+}
+model Supplier {
+  id_supplier    Int        @id @default(autoincrement())
+  name           String     @unique
+  contactPerson  String?
+  phone          String?    @db.VarChar(20)
+  email          String?
+  address        String?
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  productSuppliers ProductSupplier[]
+
+  @@index([active])
+}
+
+model ProductSupplier {
+  id_productsupplier Int     @id @default(autoincrement())
+  id_product         Int
+  id_supplier        Int
+  costPrice          Decimal? @db.Decimal(12, 2)   // OPCIONAL
+  leadTime           Int?                           // Dias para entrega (opcional)
+  minOrderQuantity   Decimal? @db.Decimal(12, 3)   // Minimo a pedir (opcional)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  product    Product  @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+  supplier   Supplier @relation(fields: [id_supplier], references: [id_supplier], onDelete: Cascade)
+
+  @@unique([id_product, id_supplier])
+  @@index([id_product])
+  @@index([id_supplier])
 }
