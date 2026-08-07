@@ -84,12 +84,15 @@ model Category {
   name          String     @unique
   description   String?
   id_parent     Int?
+  active        Boolean    @default(true)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
   parent        Category?  @relation("SubCategories", fields: [id_parent], references: [id_category], onDelete: Cascade)
   subcategories Category[] @relation("SubCategories")
   products      Product[]
+
+  @@index([active])
 }
 
 model Product {
