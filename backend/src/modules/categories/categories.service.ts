@@ -230,7 +230,6 @@ export async function updateCategory(
           // Validar id_parent (si cambió)
           if (data.id_parent !== undefined && data.id_parent !== category.id_parent) {
             if (data.id_parent) {
-              // Validar que la categoría padre existe
               const parent = await tx.category.findUnique({
                 where: { id_category: data.id_parent },
               });
@@ -239,7 +238,6 @@ export async function updateCategory(
                 throw new CategoryDomainError("Categoría padre no encontrada", 404);
               }
 
-              // Validar que no sea padre de sí mismo (directo)
               if (data.id_parent === id_category) {
                 throw new CategoryDomainError(
                   "Una categoría no puede ser su propia categoría padre",
@@ -247,8 +245,6 @@ export async function updateCategory(
                 );
               }
 
-              // Validar ciclos indirectos (A → B → A), usando el mismo cliente
-              // transaccional para que la lectura sea consistente con el update
               const hasCycle = await hasCyclicParentInTx(tx, id_category, data.id_parent);
               if (hasCycle) {
                 throw new CategoryDomainError(
@@ -259,7 +255,6 @@ export async function updateCategory(
             }
           }
 
-          // Armar objeto de actualización a mano (exactOptionalPropertyTypes)
           const updateData: Record<string, unknown> = {};
 
           if (data.name !== undefined) updateData.name = data.name;
@@ -281,15 +276,24 @@ export async function updateCategory(
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
     } catch (error) {
-      // P2034: conflicto de serializacion detectado por Postgres.
-      // Reintentamos la transaccion completa, salvo que ya sea el ultimo intento.
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2034" &&
-        attempt < MAX_RETRIES
-      ) {
-        continue;
+      const isSerializationConflict =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+
+      if (isSerializationConflict) {
+        if (attempt < MAX_RETRIES) {
+          // Aun quedan intentos: reintentamos la transaccion completa
+          continue;
+        }
+        // Se agotaron los reintentos: lo convertimos en un error de dominio
+        // conocido en vez de dejar pasar el error crudo de Prisma (que el
+        // controller mapearia como 500 en lugar de 409).
+        throw new CategoryDomainError(
+          "No se pudo actualizar la categoría debido a modificaciones concurrentes, intenta nuevamente",
+          409
+        );
       }
+
+      // Cualquier otro error (dominio o inesperado) se propaga tal cual
       throw error;
     }
   }
