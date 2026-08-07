@@ -7,6 +7,7 @@ import usersRoutes from "./modules/users/users.routes";
 import ordersRoutes from "./modules/orders/orders.routes";
 import invoicesRoutes from "./modules/invoices/invoices.routes";
 import categoriesRoutes from "./modules/categories/categories.routes";
+import suppliersRoutes from "./modules/suppliers/suppliers.routes";
 
 const app = express();
 
@@ -22,6 +23,7 @@ apiRouter.use("/users", usersRoutes);
 apiRouter.use("/orders", ordersRoutes);
 apiRouter.use("/invoices", invoicesRoutes);
 apiRouter.use("/categories", categoriesRoutes);
+apiRouter.use("/suppliers", suppliersRoutes);
 app.use("/api", apiRouter);   
 
 // Rutas básicas
