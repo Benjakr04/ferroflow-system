@@ -13,22 +13,6 @@ import {
   deactivateCategory,
 } from "./categories.service";
 
-/**
- * POST /categories
- *
- * Crear una nueva categoría
- *
- * Roles permitidos: ADMIN
- *
- * Body:
- * {
- *   "name": "Herramientas",
- *   "description": "Herramientas manuales y eléctricas",
- *   "id_parent": 1  (opcional)
- * }
- *
- * Response: 201 Created con datos de la categoría
- */
 export async function create(req: AuthenticatedRequest, res: Response) {
   try {
     const data = createCategorySchema.parse(req.body);
@@ -49,16 +33,6 @@ export async function create(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-/**
- * GET /categories
- *
- * Listar todas las categorías
- *
- * Query params:
- * - includeInactive: true/false (solo ADMIN puede ver inactivas)
- *
- * Response: 200 OK con array de categorías
- */
 export async function list(req: AuthenticatedRequest, res: Response) {
   try {
     const includeInactive = req.query.includeInactive === "true" && req.user?.role === "ADMIN";
@@ -70,13 +44,6 @@ export async function list(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-/**
- * GET /categories/:id
- *
- * Obtener una categoría específica por ID
- *
- * Response: 200 OK con datos de la categoría, o 404 si no existe
- */
 export async function getOne(req: AuthenticatedRequest, res: Response) {
   try {
     const id_category = Number(req.params.id);
@@ -84,7 +51,7 @@ export async function getOne(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ error: "ID de categoría inválido" });
     }
 
-    const category = await getCategoryById(id_category);
+    const category = await getCategoryById(id_category, req.user?.role);
     if (!category) {
       return res.status(404).json({ error: "Categoría no encontrada" });
     }
@@ -96,22 +63,6 @@ export async function getOne(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-/**
- * PUT /categories/:id
- *
- * Actualizar una categoría
- *
- * Roles permitidos: ADMIN
- *
- * Body (todos los campos son opcionales):
- * {
- *   "name": "nuevo nombre",
- *   "description": "nueva descripción",
- *   "id_parent": 2
- * }
- *
- * Response: 200 OK con datos actualizados
- */
 export async function update(req: AuthenticatedRequest, res: Response) {
   try {
     const id_category = Number(req.params.id);
@@ -137,17 +88,6 @@ export async function update(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-/**
- * DELETE /categories/:id
- *
- * Desactivar una categoría (soft delete)
- *
- * Roles permitidos: ADMIN
- *
- * Restricción: No se puede desactivar si tiene productos asociados
- *
- * Response: 204 No Content (éxito)
- */
 export async function remove(req: AuthenticatedRequest, res: Response) {
   try {
     const id_category = Number(req.params.id);
