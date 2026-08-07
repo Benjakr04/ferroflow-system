@@ -76,7 +76,7 @@ ALTER TABLE "InvoiceItem"
 COMMIT;
 
 -- Crear indices CONCURRENTLY (fuera de transaccion)
-CREATE INDEX CONCURRENTLY "Invoice_status_idx" ON "Invoice"("status");
-CREATE INDEX CONCURRENTLY "Invoice_id_customer_idx" ON "Invoice"("id_customer");
-CREATE INDEX CONCURRENTLY "Invoice_id_user_idx" ON "Invoice"("id_user");
-CREATE INDEX CONCURRENTLY "Invoice_emissionDate_idx" ON "Invoice"("emissionDate");
+CREATE INDEX "Invoice_status_idx" ON "Invoice"("status");
+CREATE INDEX "Invoice_id_customer_idx" ON "Invoice"("id_customer");
+CREATE INDEX "Invoice_id_user_idx" ON "Invoice"("id_user");
+CREATE INDEX "Invoice_emissionDate_idx" ON "Invoice"("emissionDate");
