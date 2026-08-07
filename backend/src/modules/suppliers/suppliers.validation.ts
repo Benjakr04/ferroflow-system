@@ -13,6 +13,56 @@ import { z } from "zod";
  * de que proveedor conviene comprar el mismo producto.
  */
 
+// Postgres INTEGER va de -2147483648 a 2147483647. Los campos Int de Prisma
+// (id_product, leadTime) se guardan en columnas de este tipo, asi que hay
+// que rechazar valores mas grandes antes de que lleguen a la base.
+const POSTGRES_INT_MAX = 2147483647;
+
+/**
+ * Verifica que un numero no tenga mas decimales de los que la columna
+ * Decimal de Postgres puede almacenar. Contempla notacion cientifica
+ * (ej. 1e-5), que JS permite escribir pero que igual representa una
+ * cantidad de decimales real.
+ */
+function hasMaxDecimalPlaces(value: number, maxPlaces: number): boolean {
+  if (!Number.isFinite(value)) return false;
+
+  const str = value.toString();
+
+  if (str.includes("e") || str.includes("E")) {
+    const [mantissa, exponentStr] = str.split(/[eE]/);
+    const exponent = parseInt(exponentStr, 10);
+    const mantissaDecimals = mantissa.includes(".") ? mantissa.split(".")[1].length : 0;
+    const actualDecimals = mantissaDecimals - exponent;
+    return actualDecimals <= maxPlaces;
+  }
+
+  const decimals = str.includes(".") ? str.split(".")[1].length : 0;
+  return decimals <= maxPlaces;
+}
+
+// costPrice se guarda en Decimal(12, 2): maximo 2 decimales
+const costPriceSchema = z
+  .number()
+  .nonnegative("El precio de compra no puede ser negativo")
+  .refine((val) => hasMaxDecimalPlaces(val, 2), {
+    message: "El precio de compra admite como maximo 2 decimales",
+  });
+
+// minOrderQuantity se guarda en Decimal(12, 3): maximo 3 decimales
+const minOrderQuantitySchema = z
+  .number()
+  .nonnegative("La cantidad minima no puede ser negativa")
+  .refine((val) => hasMaxDecimalPlaces(val, 3), {
+    message: "La cantidad minima admite como maximo 3 decimales",
+  });
+
+const leadTimeSchema = z
+  .number()
+  .int()
+  .nonnegative("Los dias de entrega no pueden ser negativos")
+  .max(POSTGRES_INT_MAX, "Los dias de entrega estan fuera de rango");
+
 export const createSupplierSchema = z.object({
   name: z.string().min(2, "El nombre debe tener al menos 2 caracteres").max(150),
   contactPerson: z.string().max(150).optional(),
@@ -36,14 +86,14 @@ export const updateSupplierSchema = z.object({
  * compro en este proveedor" sin necesariamente saber el precio todavia.
  */
 export const linkProductSupplierSchema = z.object({
-  id_product: z.number().int().positive(),
-  costPrice: z.number().nonnegative("El precio de compra no puede ser negativo").optional(),
-  leadTime: z.number().int().nonnegative("Los dias de entrega no pueden ser negativos").optional(),
-  minOrderQuantity: z.number().nonnegative("La cantidad minima no puede ser negativa").optional(),
+  id_product: z.number().int().positive().max(POSTGRES_INT_MAX, "ID de producto invalido"),
+  costPrice: costPriceSchema.optional(),
+  leadTime: leadTimeSchema.optional(),
+  minOrderQuantity: minOrderQuantitySchema.optional(),
 });
 
 export const updateProductSupplierSchema = z.object({
-  costPrice: z.number().nonnegative().nullable().optional(),
-  leadTime: z.number().int().nonnegative().nullable().optional(),
-  minOrderQuantity: z.number().nonnegative().nullable().optional(),
+  costPrice: costPriceSchema.nullable().optional(),
+  leadTime: leadTimeSchema.nullable().optional(),
+  minOrderQuantity: minOrderQuantitySchema.nullable().optional(),
 });

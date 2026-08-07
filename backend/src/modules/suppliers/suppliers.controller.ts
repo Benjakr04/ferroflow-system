@@ -23,6 +23,9 @@ import {
   getProductsForSupplier,
 } from "./suppliers.service";
 
+// Mismo limite que en suppliers.validation.ts: columnas Int de Postgres
+const POSTGRES_INT_MAX = 2147483647;
+
 /**
  * Convierte un parametro de ruta a un ID numerico valido.
  *
@@ -30,6 +33,9 @@ import {
  * comodines tipo "/:id+"), aunque en la practica para nuestras rutas
  * siempre llega un string simple. Este helper cubre ambos casos:
  * si llegara un array, toma el primer valor.
+ *
+ * Ademas rechaza IDs mayores al maximo de INTEGER en Postgres, para
+ * no dejar pasar numeros que rompan la query contra la base.
  */
 function parsePositiveId(raw: string | string[] | undefined): number | null {
   if (raw === undefined) {
@@ -42,7 +48,7 @@ function parsePositiveId(raw: string | string[] | undefined): number | null {
   }
 
   const id = Number(value);
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > POSTGRES_INT_MAX) {
     return null;
   }
 
@@ -199,7 +205,7 @@ export async function listProductsForSupplier(req: AuthenticatedRequest, res: Re
       return res.status(400).json({ error: "ID de proveedor invalido" });
     }
 
-    const products = await getProductsForSupplier(id_supplier);
+    const products = await getProductsForSupplier(id_supplier, req.user?.role);
     return res.status(200).json(products);
   } catch (error) {
     if (error instanceof SupplierDomainError) {

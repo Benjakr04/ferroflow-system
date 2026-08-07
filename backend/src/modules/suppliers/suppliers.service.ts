@@ -133,7 +133,13 @@ export async function getSupplierById(id_supplier: number, userRole?: string) {
 /**
  * Actualizar un proveedor
  *
- * Validacion: si cambia el nombre, debe seguir siendo unico
+ * Validacion: si cambia el nombre, debe seguir siendo unico.
+ *
+ * La comprobacion previa (findUnique por nombre) no evita una escritura
+ * concurrente: si dos requests intentan poner el mismo nombre casi al
+ * mismo tiempo, ambas pueden pasar la validacion antes de que la otra
+ * confirme su update. Por eso el update en si tambien queda protegido
+ * contra P2002 (constraint unique violado a nivel de base de datos).
  */
 export async function updateSupplier(id_supplier: number, data: UpdateSupplierInput) {
   const supplier = await prisma.supplier.findUnique({
@@ -166,17 +172,27 @@ export async function updateSupplier(id_supplier: number, data: UpdateSupplierIn
   if (data.email !== undefined) updateData.email = data.email;
   if (data.address !== undefined) updateData.address = data.address;
 
-  const updated = await prisma.supplier.update({
-    where: { id_supplier },
-    data: updateData,
-    include: {
-      productSuppliers: {
-        include: { product: true },
+  try {
+    const updated = await prisma.supplier.update({
+      where: { id_supplier },
+      data: updateData,
+      include: {
+        productSuppliers: {
+          include: { product: true },
+        },
       },
-    },
-  });
+    });
 
-  return serializeSupplier(updated);
+    return serializeSupplier(updated);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new SupplierDomainError(
+        `Ya existe un proveedor con el nombre "${data.name}"`,
+        409
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -219,7 +235,8 @@ export async function deactivateSupplier(id_supplier: number) {
  * Asociar un producto a un proveedor, opcionalmente con precio de compra
  *
  * Validaciones:
- * - El proveedor debe existir
+ * - El proveedor debe existir y estar activo (no se agregan productos
+ *   nuevos a un proveedor desactivado)
  * - El producto debe existir
  * - No puede existir ya una asociacion entre ese producto y ese proveedor
  *   (para eso esta updateProductSupplierLink)
@@ -234,6 +251,13 @@ export async function linkProductToSupplier(
 
   if (!supplier) {
     throw new SupplierDomainError("Proveedor no encontrado", 404);
+  }
+
+  if (!supplier.active) {
+    throw new SupplierDomainError(
+      "No se pueden asociar productos a un proveedor desactivado",
+      409
+    );
   }
 
   const product = await prisma.product.findUnique({
@@ -368,13 +392,22 @@ export async function getSuppliersForProduct(id_product: number) {
 
 /**
  * Obtener todos los productos que provee un proveedor especifico
+ *
+ * Usuarios no-admin no pueden ver los productos de un proveedor
+ * desactivado, siguiendo la misma regla que getSupplierById.
  */
-export async function getProductsForSupplier(id_supplier: number) {
+export async function getProductsForSupplier(id_supplier: number, userRole?: string) {
+  const isAdmin = userRole === "ADMIN";
+
   const supplier = await prisma.supplier.findUnique({
     where: { id_supplier },
   });
 
   if (!supplier) {
+    throw new SupplierDomainError("Proveedor no encontrado", 404);
+  }
+
+  if (!supplier.active && !isAdmin) {
     throw new SupplierDomainError("Proveedor no encontrado", 404);
   }
 
